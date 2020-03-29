@@ -14,7 +14,7 @@
 #include "sysconfig.h"
 #include "sysdeps.h"
 
-#if defined(__CELLOS_LV2__) || defined(_WIN32) || defined(WIIU)
+#if defined(__CELLOS_LV2__) || defined(_WIN32) || defined(WIIU) || defined(__SWITCH__) || defined(VITA)
 #define tzset() 
 #define timezone 0
 #define daylight 0
@@ -48,6 +48,7 @@ int disk_debug_track = -1;
 #include "driveclick.h"
 #ifdef CAPS
 #include "caps.h"
+#include "caps/capsimage.h"
 #endif
 #include "crc32.h"
 #include "inputdevice.h"
@@ -58,6 +59,12 @@ int disk_debug_track = -1;
 #include "misc.h"
 #include "inputrecord.h"
 #include <ctype.h>
+
+#ifdef __LIBRETRO__
+#include "libretro-glue.h"
+#include "retro_strings.h"
+extern dc_storage *retro_dc;
+#endif
 
 #undef CATWEASEL
 
@@ -684,6 +691,7 @@ static void setamax (void)
 
 static void reset_drive (int num)
 {
+	char *fname = NULL;
 	drive *drv = &floppy[num];
 
 	drv->amax = 0;
@@ -696,6 +704,7 @@ static void reset_drive (int num)
 	if (currprefs.floppyslots[num].dfxtype < 0)
 		disabled |= 1 << num;
 	reset_drive_gui (num);
+
 	/* most internal Amiga floppy drives won't enable
 	* diskready until motor is running at full speed
 	* and next indexsync has been passed
@@ -713,10 +722,12 @@ static void reset_drive (int num)
 	drive_settype_id (drv);
 	_tcscpy (currprefs.floppyslots[num].df, changed_prefs.floppyslots[num].df);
 
+	fname = my_strdup (currprefs.floppyslots[num].df);
 	drv->newname[0] = 0;
 	drv->newnamewriteprotected = false;
-	if (!drive_insert (drv, &currprefs, num, currprefs.floppyslots[num].df, false, false))
+	if (!drive_insert (drv, &currprefs, num, fname, false, false))
 		disk_eject (num);
+	free (fname);
 }
 
 /* code for track display */
@@ -885,14 +896,17 @@ static int iswritefileempty (struct uae_prefs *p, const TCHAR *name)
 	zf = getwritefile (p, name, &wrprot);
 	if (!zf) return 1;
 	zfile_fread (buffer, sizeof (char), 8, zf);
-	if (strncmp ((uae_char*)buffer, "UAE-1ADF", 8))
+	if (strncmp ((uae_char*)buffer, "UAE-1ADF", 8)) {
+		zfile_fclose(zf);
 		return 0;
+	}
 	ret = read_header_ext2 (zf, td, &tracks, &ddhd);
 	zfile_fclose (zf);
 	if (!ret)
 		return 1;
 	for (i = 0; i < tracks; i++) {
-		if (td[i].bitlen) return 0;
+		if (td[i].bitlen)
+			return 0;
 	}
 	return 1;
 }
@@ -971,9 +985,16 @@ static int drive_insert (drive * drv, struct uae_prefs *p, int dnum, const TCHAR
 	int size;
 	int canauto;
 	const TCHAR *ext;
+	/* Note: The UAE code keeps passing the same
+	 * pointer as the both the src and dst of string
+	 * copy operations. This is ridiculous - at best it
+	 * causes ASAN errors, at worst it causes crashes.
+	 * We implement a lazy fix here by copying the
+	 * input fname to a temporary buffer... */
+	TCHAR *filename = my_strdup (fname);
 
 	drive_image_free (drv);
-	DISK_validate_filename (p, fname, 1, &drv->wrprot, &drv->crc32, &drv->diskfile);
+	DISK_validate_filename (p, filename, 1, &drv->wrprot, &drv->crc32, &drv->diskfile);
 	drv->forcedwrprot = forcedwriteprotect;
 	if (drv->forcedwrprot)
 		drv->wrprot = true;
@@ -984,10 +1005,10 @@ static int drive_insert (drive * drv, struct uae_prefs *p, int dnum, const TCHAR
 	drv->useturbo = 0;
 	drv->indexoffset = 0;
 
-	gui_disk_image_change (dnum, fname, drv->wrprot);
+	gui_disk_image_change (dnum, filename, drv->wrprot);
 
 	canauto = 0;
-	ext = _tcsrchr (fname, '.');
+	ext = _tcsrchr (filename, '.');
 	if (ext) {
 		if (!_tcsicmp (ext + 1, _T("adf")) || !_tcsicmp (ext + 1, _T("adz")) || !_tcsicmp (ext + 1, _T("st")) || !_tcsicmp (ext + 1, _T("ima")) || !_tcsicmp (ext + 1, _T("img"))) 
 			canauto = 1;
@@ -1004,17 +1025,18 @@ static int drive_insert (drive * drv, struct uae_prefs *p, int dnum, const TCHAR
 	}
 
 	if (!fake)
-		inprec_recorddiskchange (dnum, fname, drv->wrprot);
+		inprec_recorddiskchange (dnum, filename, drv->wrprot);
 
-	_tcsncpy (currprefs.floppyslots[dnum].df, fname, 255);
+	_tcsncpy (currprefs.floppyslots[dnum].df, filename, 255);
 	currprefs.floppyslots[dnum].df[255] = 0;
 	currprefs.floppyslots[dnum].forcedwriteprotect = forcedwriteprotect;
-	_tcsncpy (changed_prefs.floppyslots[dnum].df, fname, 255);
+	_tcsncpy (changed_prefs.floppyslots[dnum].df, filename, 255);
 	changed_prefs.floppyslots[dnum].df[255] = 0;
 	changed_prefs.floppyslots[dnum].forcedwriteprotect = forcedwriteprotect;
-	_tcscpy (drv->newname, fname);
+	_tcscpy (drv->newname, filename);
 	drv->newnamewriteprotected = forcedwriteprotect;
-	gui_filename (dnum, fname);
+	gui_filename (dnum, filename);
+	free (filename);
 
 	memset (buffer, 0, sizeof buffer);
 	size = 0;
@@ -1373,7 +1395,12 @@ static void drive_motor (drive * drv, bool off)
 		drv->dskready = 0;
 		drv->dskready_up_time = 0;
 	} else {
+				
 		drv->dskready_down_time = 0;
+		FILE *file;
+    		file = fopen("/dev/ttyACM0","w");  //Opening device file don't for get to run "sudo chmod a+rw /dev/ttyACM0" in terminal!
+        	fprintf(file,"%d",2); //Writing to the file (motor on)
+    		fclose(file); //end of serial output
 	}
 #ifdef CATWEASEL
 	if (drv->catweasel)
@@ -2587,12 +2614,14 @@ void disk_insert_force (int num, const TCHAR *name, bool forcedwriteprotect)
 {
 	disk_insert_2 (num, name, 1, forcedwriteprotect);
 }
-#ifdef __LIBRETRO__
-void DISK_check_change (void)
-#else
+
 static void DISK_check_change (void)
-#endif
 {
+#ifdef __LIBRETRO__
+	/* cd_speed check is not done anywhere in WinUAE, so why not just do it here */
+	if (currprefs.cd_speed != changed_prefs.cd_speed)
+		currprefs.cd_speed = changed_prefs.cd_speed;
+#endif
 	if (currprefs.floppy_speed != changed_prefs.floppy_speed)
 		currprefs.floppy_speed = changed_prefs.floppy_speed;
 	for (int i = 0; i < MAX_FLOPPY_DRIVES; i++) {
@@ -2680,10 +2709,9 @@ void DISK_select (uae_u8 data)
 
 	fetch_DISK_select (data);
 	step_pulse = data & 1;
-
-	if (disk_debug_logging > 1)
+	if (disk_debug_logging > 1){
 		write_log (_T("%08X %02X->%02X %s drvmask=%x"), M68K_GETPC, prev_data, data, tobin(data), selected ^ 15);
-
+		}
 #ifdef AMAX
 	if (currprefs.amaxromfile[0])
 		amax_disk_select (data, prev_data);
@@ -2711,13 +2739,29 @@ void DISK_select (uae_u8 data)
 
 	// step goes high and drive was selected when step pulse changes: step
 	if (prev_step != step_pulse) {
-		if (disk_debug_logging > 1)
+		if (disk_debug_logging > 1){
 			write_log (_T(" dskstep %d "), step_pulse);
+			}
 		prev_step = step_pulse;
 		if (prev_step && !savestate_state) {
+							if (direction == 1){
+							FILE *file;
+    		file = fopen("/dev/ttyACM0","w");  //Opening device file don't for get to run "sudo chmod a+rw /dev/ttyACM0" in terminal!
+        	fprintf(file,"%d",4); //Writing to the file (step in)
+    		fclose(file); //end of serial output
+					
+    		}
+    		if (direction <= 1){
+    				FILE *file;
+    		file = fopen("/dev/ttyACM0","w");  //Opening device file don't for get to run "sudo chmod a+rw /dev/ttyACM0" in terminal!
+        	fprintf(file,"%d",3); //Writing to the file (step out)
+    		fclose(file); //end of serial output
+					
+    		}
 			for (dr = 0; dr < MAX_FLOPPY_DRIVES; dr++) {
 				if (!((prev_selected | disabled) & (1 << dr))) {
 					drive_step (floppy + dr, direction);
+
 					if (floppy[dr].indexhackmode > 1 && (data & 0x80))
 						floppy[dr].indexhack = 1;
 				}
@@ -2731,11 +2775,18 @@ void DISK_select (uae_u8 data)
 			/* motor on/off workings tested with small assembler code on real Amiga 1200. */
 			/* motor/id flipflop is set only when drive select goes from high to low */
 			if (!(selected & (1 << dr)) && (prev_selected & (1 << dr)) ) {
+
 				drv->drive_id_scnt++;
 				drv->drive_id_scnt &= 31;
 				drv->idbit = (drv->drive_id & (1L << (31 - drv->drive_id_scnt))) ? 1 : 0;
 				if (!(disabled & (1 << dr))) {
+				
+				
+				
 					if ((prev_data & 0x80) == 0 || (data & 0x80) == 0) {
+					
+				
+					
 						/* motor off: if motor bit = 0 in prevdata or data -> turn motor on */
 						drive_motor (drv, 0);
 					} else if (prev_data & 0x80) {
@@ -2781,6 +2832,7 @@ uae_u8 DISK_status (void)
 #ifdef CATWEASEL
 					if (catweasel_diskready (drv->catweasel))
 						st &= ~0x20;
+									
 #endif
 				} else {
 					if (drv->dskready && !drv->indexhack && currprefs.floppyslots[dr].dfxtype != DRV_35_DD_ESCOM)
@@ -3709,10 +3761,12 @@ void DISK_init (void)
 
 	for (dr = 0; dr < MAX_FLOPPY_DRIVES; dr++) {
 		drive *drv = &floppy[dr];
+		char *fname = my_strdup (currprefs.floppyslots[dr].df);
 		/* reset all drive types to 3.5 DD */
 		drive_settype_id (drv);
-		if (!drive_insert (drv, &currprefs, dr, currprefs.floppyslots[dr].df, false, currprefs.floppyslots[dr].forcedwriteprotect))
+		if (!drive_insert (drv, &currprefs, dr, fname, false, currprefs.floppyslots[dr].forcedwriteprotect))
 			disk_eject (dr);
+		free (fname);
 	}
 	if (disk_empty (0))
 		write_log (_T("No disk in drive 0.\n"));
@@ -3862,6 +3916,29 @@ void restore_disk_finish (void)
 	int cnt = 0;
 	for (int i = 0; i < MAX_FLOPPY_DRIVES; i++) {
 		if (currprefs.floppyslots[i].dfxtype >= 0) {
+#ifdef __LIBRETRO__
+			/* Attempt to restore frontend 'current disk index' */
+			if ((i == 0) && retro_dc && (retro_dc->count > 0)) {
+				const char *restored_df = changed_prefs.floppyslots[i].df;
+				/* Ensure restored disk path is valid */
+				if (restored_df && (*restored_df != '\0')) {
+					/* Loop over all images in retro_dc struct */
+					for (int dc_index = 0; dc_index < retro_dc->count; dc_index++) {
+						/* Only consider floppy images... */
+						if (retro_dc->types[dc_index] == DC_IMAGE_TYPE_FLOPPY) {
+							const char *retro_dc_df = retro_dc->files[dc_index];
+							/* Check whether image in retro_dc struct matches
+							 * restored image */
+							if (retro_dc_df && (*retro_dc_df != '\0') &&
+								 !strcmp (restored_df, retro_dc_df)) {
+								retro_dc->index = dc_index;
+								break;
+							}
+						}
+					}
+				}
+			}
+#endif
 			update_drive_gui (i, true);
 			cnt++;
 		}
