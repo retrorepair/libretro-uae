@@ -59,6 +59,8 @@ int disk_debug_track = -1;
 #include "misc.h"
 #include "inputrecord.h"
 #include <ctype.h>
+#include <stdio.h>
+#include <unistd.h>
 
 #ifdef __LIBRETRO__
 #include "libretro-glue.h"
@@ -1397,10 +1399,12 @@ static void drive_motor (drive * drv, bool off)
 	} else {
 				
 		drv->dskready_down_time = 0;
-		FILE *file;
+
+			FILE *file;
     		file = fopen("/dev/ttyACM0","w");  //Opening device file don't for get to run "sudo chmod a+rw /dev/ttyACM0" in terminal!
         	fprintf(file,"%d",2); //Writing to the file (motor on)
     		fclose(file); //end of serial output
+
 	}
 #ifdef CATWEASEL
 	if (drv->catweasel)
@@ -2744,20 +2748,21 @@ void DISK_select (uae_u8 data)
 			}
 		prev_step = step_pulse;
 		if (prev_step && !savestate_state) {
-							if (direction == 1){
-							FILE *file;
-    		file = fopen("/dev/ttyACM0","w");  //Opening device file don't for get to run "sudo chmod a+rw /dev/ttyACM0" in terminal!
-        	fprintf(file,"%d",4); //Writing to the file (step in)
-    		fclose(file); //end of serial output
-					
-    		}
+			fork();
+			if (direction == 1){
+				FILE *file;
+	    		file = fopen("/dev/ttyACM0","w");  //Opening device file don't for get to run "sudo chmod a+rw /dev/ttyACM0" in terminal!
+	        	fprintf(file,"%d",4); //Writing to the file (step in)
+	    		fclose(file); //end of serial output
+			}
     		if (direction <= 1){
-    				FILE *file;
-    		file = fopen("/dev/ttyACM0","w");  //Opening device file don't for get to run "sudo chmod a+rw /dev/ttyACM0" in terminal!
-        	fprintf(file,"%d",3); //Writing to the file (step out)
-    		fclose(file); //end of serial output
-					
+	    		FILE *file;
+	    		file = fopen("/dev/ttyACM0","w");  //Opening device file don't for get to run "sudo chmod a+rw /dev/ttyACM0" in terminal!
+	        	fprintf(file,"%d",3); //Writing to the file (step out)
+	    		fclose(file); //end of serial output
     		}
+    		return 0;
+
 			for (dr = 0; dr < MAX_FLOPPY_DRIVES; dr++) {
 				if (!((prev_selected | disabled) & (1 << dr))) {
 					drive_step (floppy + dr, direction);
