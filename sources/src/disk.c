@@ -79,6 +79,7 @@ extern dc_storage *retro_dc;
 static int serialState = 0;
 static char comPort[20] = "/dev/ttyACM0";
 static FILE *serialFile;
+static boolean fileOpen = false;
 
 /* external prototypes */
 extern uae_u32 uaerand (void);
@@ -1383,6 +1384,7 @@ static void step_update_serial(int serial)
 	//if (serialState == 4){
 	//FILE *file;
 	//file = fopen(comPort,"w");
+	
     	fprintf(serialFile,"%d",serial); //Writing to the file (motor on)
     	//fclose(file); //end of serial output
     //serialState = 0;
@@ -2792,7 +2794,10 @@ void DISK_select (uae_u8 data)
 			}
 		prev_step = step_pulse;
 		if (prev_step && !savestate_state) {
-			serialFile = fopen(comPort,"a");					
+			if (fileOpen == false)
+			{
+				serialFile = fopen(comPort,"a");	
+			}
 			for (dr = 0; dr < MAX_FLOPPY_DRIVES; dr++) {
 			
 			
@@ -2814,7 +2819,7 @@ void DISK_select (uae_u8 data)
 						floppy[dr].indexhack = 1;
 				}
 			}
-		fclose(serialFile);
+		
 		}
 	}
 
