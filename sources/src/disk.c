@@ -2794,10 +2794,9 @@ void DISK_select (uae_u8 data)
 			}
 		prev_step = step_pulse;
 		if (prev_step && !savestate_state) {
-			if (fileOpen == false)
-			{
-				serialFile = fopen(comPort,"a");	
-			}
+
+			serialFile = fopen(comPort,"a");	
+
 			for (dr = 0; dr < MAX_FLOPPY_DRIVES; dr++) {
 			
 			
@@ -2819,7 +2818,7 @@ void DISK_select (uae_u8 data)
 						floppy[dr].indexhack = 1;
 				}
 			}
-		
+		fclose(serialFile);
 		}
 	}
 
