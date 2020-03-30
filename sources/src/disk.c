@@ -24,6 +24,8 @@ int disk_debug_logging = 0;
 int disk_debug_mode = 0;
 int disk_debug_track = -1;
 
+int stepCount = 0;
+
 #define MFM_VALIDATOR 0
 
 #include "uae.h"
@@ -58,8 +60,12 @@ int disk_debug_track = -1;
 #endif
 #include "misc.h"
 #include "inputrecord.h"
-#include <ctype.h>
+#include <string.h>
 #include <stdio.h>
+#include <ctype.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <termios.h>
 #include <unistd.h>
 
 #ifdef __LIBRETRO__
@@ -69,6 +75,9 @@ extern dc_storage *retro_dc;
 #endif
 
 #undef CATWEASEL
+
+static int serialState = 0;
+static char comPort[20] = "/dev/ttyACM0";
 
 /* external prototypes */
 extern uae_u32 uaerand (void);
@@ -1279,6 +1288,7 @@ static int drive_empty (drive * drv)
 
 static void drive_step (drive * drv, int step_direction)
 {
+
 #ifdef CATWEASEL
 	if (drv->catweasel) {
 		int dir = direction ? -1 : 1;
@@ -1309,6 +1319,7 @@ static void drive_step (drive * drv, int step_direction)
 #ifdef DRIVESOUND
 			if (isfloppysound (drv))
 				driveclick_click (drv - floppy, drv->cyl);
+				
 #endif
 		}
 		/*	else
@@ -1363,6 +1374,29 @@ static void motordelay_func (uae_u32 v)
 {
 	floppy[v].motordelay = 0;
 }
+	
+
+
+static void step_update_serial()
+{ 
+	//if (serialState == 4){
+	FILE *file;
+	file = fopen(comPort,"w");
+    fprintf(file,"%d",serialState); //Writing to the file (motor on)
+    fclose(file); //end of serial output
+    //serialState = 0;
+    //}
+}
+
+static void motor_update_serial()
+{ 
+	//if (serialState == 2){
+	FILE *file;
+	file = fopen(comPort,"w");
+    fprintf(file,"%d",serialState); //Writing to the file (motor on)
+    fclose(file); //end of serial output
+    //}
+}
 
 static void drive_motor (drive * drv, bool off)
 {
@@ -1393,19 +1427,23 @@ static void drive_motor (drive * drv, bool off)
 		}
 	}
 	drv->motoroff = off;
+	
+
+    
 	if (drv->motoroff) {
 		drv->dskready = 0;
 		drv->dskready_up_time = 0;
+		serialState = 1;
+		motor_update_serial();
+
 	} else {
 				
 		drv->dskready_down_time = 0;
-
-			FILE *file;
-    		file = fopen("/dev/ttyACM0","w");  //Opening device file don't for get to run "sudo chmod a+rw /dev/ttyACM0" in terminal!
-        	fprintf(file,"%d",2); //Writing to the file (motor on)
-    		fclose(file); //end of serial output
+		serialState = 2;
+		motor_update_serial();
 
 	}
+	    		
 #ifdef CATWEASEL
 	if (drv->catweasel)
 		catweasel_set_motor (drv->catweasel, !drv->motoroff);
@@ -2707,9 +2745,12 @@ void DISK_select_set (uae_u8 data)
 
 void DISK_select (uae_u8 data)
 {
+	stepCount = 0;
 	int step_pulse, prev_selected, dr;
 
 	prev_selected = selected;
+	
+
 
 	fetch_DISK_select (data);
 	step_pulse = data & 1;
@@ -2732,6 +2773,7 @@ void DISK_select (uae_u8 data)
 	}
 
 	if (disk_debug_logging > 1) {
+
 		write_log (_T(" %d%d%d%d% "), (selected & 1) ? 0 : 1, (selected & 2) ? 0 : 1, (selected & 4) ? 0 : 1, (selected & 8) ? 0 : 1);
 		if ((prev_data & 0x80) != (data & 0x80))
 			write_log (_T(" dskmotor %d "), (data & 0x80) ? 1 : 0);
@@ -2743,30 +2785,30 @@ void DISK_select (uae_u8 data)
 
 	// step goes high and drive was selected when step pulse changes: step
 	if (prev_step != step_pulse) {
+
 		if (disk_debug_logging > 1){
 			write_log (_T(" dskstep %d "), step_pulse);
 			}
 		prev_step = step_pulse;
 		if (prev_step && !savestate_state) {
-			fork();
-			if (direction == 1){
-				FILE *file;
-	    		file = fopen("/dev/ttyACM0","w");  //Opening device file don't for get to run "sudo chmod a+rw /dev/ttyACM0" in terminal!
-	        	fprintf(file,"%d",4); //Writing to the file (step in)
-	    		fclose(file); //end of serial output
-			}
-    		if (direction <= 1){
-	    		FILE *file;
-	    		file = fopen("/dev/ttyACM0","w");  //Opening device file don't for get to run "sudo chmod a+rw /dev/ttyACM0" in terminal!
-	        	fprintf(file,"%d",3); //Writing to the file (step out)
-	    		fclose(file); //end of serial output
-    		}
-    		return 0;
-
+							
 			for (dr = 0; dr < MAX_FLOPPY_DRIVES; dr++) {
+			
+			
+									if (step_pulse && direction == 1 && stepCount == 0){
+							serialState = 3;
+							step_update_serial();
+							stepCount = 1;
+    					}
+    					else if (step_pulse && direction <= 1 && stepCount == 0){
+    						serialState = 4;
+    						step_update_serial();
+    						stepCount = 1;
+    					}		
+			
+			
 				if (!((prev_selected | disabled) & (1 << dr))) {
 					drive_step (floppy + dr, direction);
-
 					if (floppy[dr].indexhackmode > 1 && (data & 0x80))
 						floppy[dr].indexhack = 1;
 				}
@@ -2788,13 +2830,16 @@ void DISK_select (uae_u8 data)
 				
 				
 				
-					if ((prev_data & 0x80) == 0 || (data & 0x80) == 0) {
+					if ((prev_data & 0x80) == 0 || (data & 0x80) == 0) 						{
 					
+					
+
 				
 					
 						/* motor off: if motor bit = 0 in prevdata or data -> turn motor on */
 						drive_motor (drv, 0);
-					} else if (prev_data & 0x80) {
+					}
+					else if (prev_data & 0x80) {
 						/* motor on: if motor bit = 1 in prevdata only (motor flag state in data has no effect)
 						-> turn motor off */
 						drive_motor (drv, 1);
@@ -2817,6 +2862,8 @@ void DISK_select (uae_u8 data)
 	prev_data = data;
 	if (disk_debug_logging > 1)
 		write_log (_T("\n"));
+	
+		
 }
 
 uae_u8 DISK_status (void)
