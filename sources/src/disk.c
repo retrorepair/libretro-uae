@@ -78,6 +78,7 @@ extern dc_storage *retro_dc;
 
 static int serialState = 0;
 static char comPort[20] = "/dev/ttyACM0";
+static FILE *serialFile;
 
 /* external prototypes */
 extern uae_u32 uaerand (void);
@@ -1377,17 +1378,17 @@ static void motordelay_func (uae_u32 v)
 	
 
 
-static void step_update_serial()
+static void step_update_serial(int serial)
 { 
 	//if (serialState == 4){
-	FILE *file;
-	file = fopen(comPort,"w");
-    fprintf(file,"%d",serialState); //Writing to the file (motor on)
-    fclose(file); //end of serial output
+	//FILE *file;
+	//file = fopen(comPort,"w");
+    	fprintf(file,"%d",serial); //Writing to the file (motor on)
+    	//fclose(file); //end of serial output
     //serialState = 0;
     //}
 }
-
+/*
 static void motor_update_serial()
 { 
 	//if (serialState == 2){
@@ -1397,7 +1398,7 @@ static void motor_update_serial()
     fclose(file); //end of serial output
     //}
 }
-
+*/
 static void drive_motor (drive * drv, bool off)
 {
 	if (drv->motoroff && !off) {
@@ -2791,18 +2792,18 @@ void DISK_select (uae_u8 data)
 			}
 		prev_step = step_pulse;
 		if (prev_step && !savestate_state) {
-							
+			serialFile = fopen(comPort,"w");					
 			for (dr = 0; dr < MAX_FLOPPY_DRIVES; dr++) {
 			
 			
-									if (step_pulse && direction == 1 && stepCount == 0){
+					if (step_pulse && direction == 1 && stepCount == 0){
 							serialState = 3;
-							step_update_serial();
+							step_update_serial(serialState);
 							stepCount = 1;
     					}
     					else if (step_pulse && direction <= 1 && stepCount == 0){
     						serialState = 4;
-    						step_update_serial();
+    						step_update_serial(serialState);
     						stepCount = 1;
     					}		
 			
@@ -2813,6 +2814,7 @@ void DISK_select (uae_u8 data)
 						floppy[dr].indexhack = 1;
 				}
 			}
+		fclose(serialFile);
 		}
 	}
 
