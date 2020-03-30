@@ -79,7 +79,7 @@ extern dc_storage *retro_dc;
 static int serialState = 0;
 static char comPort[20] = "/dev/ttyACM0";
 static FILE *serialFile;
-static boolean fileOpen = false;
+static bool fileOpen = false;
 
 /* external prototypes */
 extern uae_u32 uaerand (void);
