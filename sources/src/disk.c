@@ -1383,7 +1383,7 @@ static void step_update_serial(int serial)
 	//if (serialState == 4){
 	//FILE *file;
 	//file = fopen(comPort,"w");
-    	fprintf(file,"%d",serial); //Writing to the file (motor on)
+    	fprintf(serialFile,"%d",serial); //Writing to the file (motor on)
     	//fclose(file); //end of serial output
     //serialState = 0;
     //}
@@ -2792,7 +2792,7 @@ void DISK_select (uae_u8 data)
 			}
 		prev_step = step_pulse;
 		if (prev_step && !savestate_state) {
-			serialFile = fopen(comPort,"w");					
+			serialFile = fopen(comPort,"a");					
 			for (dr = 0; dr < MAX_FLOPPY_DRIVES; dr++) {
 			
 			
