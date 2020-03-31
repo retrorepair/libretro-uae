@@ -80,7 +80,6 @@ static int serialState = 0;
 static char comPort[20] = "/dev/ttyACM0";
 static FILE *serialFile;
 static bool fileOpen = false;
-static int stepState = 0;
 
 /* external prototypes */
 extern uae_u32 uaerand (void);
@@ -2749,28 +2748,6 @@ void DISK_select_set (uae_u8 data)
 
 void DISK_select (uae_u8 data)
 {
-
-
-
-
-		if (stepState == 1) {
-			serialFile = fopen(comPort,"a");		
-				if (direction == 1){
-					serialState = 3;
-					step_update_serial(serialState, stepCount);
-					//stepCount++;
-    			}
-    			else if (direction <= 1){
-    				serialState = 4;
-    				step_update_serial(serialState, stepCount);
-    				//stepCount++;
-    			}
-			fclose(serialFile);
-		}
-
-
-
-
 	stepCount = 0;
 	int step_pulse, prev_selected, dr;
 
@@ -2819,7 +2796,7 @@ void DISK_select (uae_u8 data)
 			}
 		prev_step = step_pulse;
 		if (prev_step && !savestate_state) {
-			stepState = 1;
+
 			for (dr = 0; dr < MAX_FLOPPY_DRIVES; dr++) {
 				if (!((prev_selected | disabled) & (1 << dr))) {
 					drive_step (floppy + dr, direction);
@@ -2828,14 +2805,25 @@ void DISK_select (uae_u8 data)
 				}
 			}
 
-		} else if (prev_step && savestate_state){
-			stepState=0;
 		}
 		
 		
 	
 		
-
+		if (step_pulse) {
+			serialFile = fopen(comPort,"a");		
+				if (direction == 1 && stepCount == 0){
+					serialState = 3;
+					step_update_serial(serialState, stepCount);
+					stepCount++;
+    			}
+    			else if (direction <= 1 && stepCount == 0){
+    				serialState = 4;
+    				step_update_serial(serialState, stepCount);
+    				stepCount++;
+    			}
+			fclose(serialFile);
+		}
 		
 		
 		
