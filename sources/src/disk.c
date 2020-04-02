@@ -2787,7 +2787,7 @@ void DISK_select (uae_u8 data)
 	// step goes high and drive was selected when step pulse changes: step
 	if (prev_step != step_pulse) {
 
-				if (direction == 1){
+				if (direction == 1){ //Check step direction and update serialState
 					serialState = 3;
 					//stepCount++;
     			}
@@ -2801,10 +2801,7 @@ void DISK_select (uae_u8 data)
 			}
 		prev_step = step_pulse;
 		if (prev_step && !savestate_state) {
-							serialState = 0;
-    				serialFile = fopen(comPort,"a");
-					step_update_serial(serialState);
-					fclose(serialFile);
+
 
 			for (dr = 0; dr < MAX_FLOPPY_DRIVES; dr++) {
 				serialFile = fopen(comPort,"a");
@@ -2819,6 +2816,11 @@ void DISK_select (uae_u8 data)
 			}
 
 		} 
+	} else if (prev_step == step_pulse){
+		serialState = 0;
+    	serialFile = fopen(comPort,"a");
+		step_update_serial(serialState);
+		fclose(serialFile);
 	}
 
 	if (!savestate_state) {
