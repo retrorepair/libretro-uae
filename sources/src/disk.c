@@ -1379,16 +1379,15 @@ static void motordelay_func (uae_u32 v)
 	
 
 
-static void step_update_serial(int serial, int step)
+static void step_update_serial(int serial)
 { 
-	if (step == 0){
+
 	//FILE *file;
 	//file = fopen(comPort,"w");
 	
     	fprintf(serialFile,"%d",serial); //Writing to the file (motor on)
     	//fclose(file); //end of serial output
-    step++;
-    }
+
 }
 /*
 static void motor_update_serial()
@@ -1436,13 +1435,13 @@ static void drive_motor (drive * drv, bool off)
 	if (drv->motoroff) {
 		drv->dskready = 0;
 		drv->dskready_up_time = 0;
-		serialState = 1;
+		//serialState = 1;
 		//motor_update_serial();
 
 	} else {
 				
 		drv->dskready_down_time = 0;
-		serialState = 2;
+		//serialState = 2;
 		//motor_update_serial();
 
 	}
@@ -2748,13 +2747,10 @@ void DISK_select_set (uae_u8 data)
 
 void DISK_select (uae_u8 data)
 {
-	stepCount = 0;
 	int step_pulse, prev_selected, dr;
 
 	prev_selected = selected;
 	
-
-
 	fetch_DISK_select (data);
 	step_pulse = data & 1;
 	if (disk_debug_logging > 1){
@@ -2791,43 +2787,38 @@ void DISK_select (uae_u8 data)
 	// step goes high and drive was selected when step pulse changes: step
 	if (prev_step != step_pulse) {
 
+				if (direction == 1){
+					serialState = 3;
+					//stepCount++;
+    			}
+    			else if (direction <= 1){
+    				serialState = 4;
+    				//stepCount++;
+    			}
+    		
 		if (disk_debug_logging > 1){
 			write_log (_T(" dskstep %d "), step_pulse);
 			}
 		prev_step = step_pulse;
 		if (prev_step && !savestate_state) {
+							serialState = 0;
+    				serialFile = fopen(comPort,"a");
+					step_update_serial(serialState);
+					fclose(serialFile);
 
 			for (dr = 0; dr < MAX_FLOPPY_DRIVES; dr++) {
+				serialFile = fopen(comPort,"a");
 				if (!((prev_selected | disabled) & (1 << dr))) {
+					serialFile = fopen(comPort,"a");
+					step_update_serial(serialState);
+					fclose(serialFile);
 					drive_step (floppy + dr, direction);
 					if (floppy[dr].indexhackmode > 1 && (data & 0x80))
 						floppy[dr].indexhack = 1;
 				}
 			}
 
-		}
-		
-		
-	
-		
-		if (step_pulse) {
-			serialFile = fopen(comPort,"a");		
-				if (direction == 1 && stepCount == 0){
-					serialState = 3;
-					step_update_serial(serialState, stepCount);
-					stepCount++;
-    			}
-    			else if (direction <= 1 && stepCount == 0){
-    				serialState = 4;
-    				step_update_serial(serialState, stepCount);
-    				stepCount++;
-    			}
-			fclose(serialFile);
-		}
-		
-		
-		
-		
+		} 
 	}
 
 	if (!savestate_state) {
